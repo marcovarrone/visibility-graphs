@@ -1,76 +1,18 @@
-import collections
-import math
-
-import networkx as nx
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as dates
+from pandas.plotting import register_matplotlib_converters
+
+from MultiplexVisibilityGraph import MultiplexVisibilityGraph
 
 companies = ['AAPL', 'ADBE', 'AMGN', 'AMZN', 'CMCSA', 'CSCO', 'GILD', 'INTC', 'INTU', 'MSFT', 'NVDA', 'PEP', 'QCOM',
              'SBUX', 'TXN']
 
-
-def horizontal_visibility_graph(series):
-    current = 0
-    series_size = len(series)
-
-    G = nx.Graph()
-    G.add_nodes_from(range(series_size))
-    while current < series_size - 1:
-        new_bar = current + 1
-        max_bar_value = -math.inf
-        while new_bar < series_size:
-            if series[new_bar] > max_bar_value:
-                G.add_edge(current, new_bar)
-                max_bar_value = series[new_bar]
-
-            if series[new_bar] > series[current]:
-                break
-
-            new_bar += 1
-        current += 1
-    return G
-
-
-def mutual_information(series1, series2):
-    N = len(series1)
-    g1 = horizontal_visibility_graph(series1)
-    degrees1 = g1.degree()
-    degrees_dict1 = collections.defaultdict(list)
-    for node, degree in degrees1:
-        degrees_dict1[degree].append(node)
-    degreeCount1 = collections.Counter([d for n, d in degrees1])
-
-    g2 = horizontal_visibility_graph(series2)
-    degrees2 = g2.degree()
-    degrees_dict2 = collections.defaultdict(list)
-    for node, degree in degrees2:
-        degrees_dict2[degree].append(node)
-    degreeCount2 = collections.Counter([d for n, d in degrees2])
-
-    mutual_information = 0
-    for k1 in degreeCount1.keys():
-        for k2 in degreeCount2.keys():
-            joint_probability = len(np.intersect1d(degrees_dict1[k1], degrees_dict2[k2])) / N
-            marginal_probability_1 = len(degrees_dict1[k1]) / N
-            marginal_probability_2 = len(degrees_dict2[k2]) / N
-
-            if joint_probability == 0:
-                mutual_information = 0
-            else:
-                mutual_information += joint_probability * math.log2(
-                    (joint_probability / (marginal_probability_1 * marginal_probability_2)))
-    return mutual_information
-
-
-def average_mutual_information(series_list):
-    mutual_informations = []
-    for i in range(len(series_list)):
-        for j in range(i + 1, len(series_list)):
-            mutual_informations.append(
-                mutual_information(series_list[i], series_list[j]))
-    return sum(mutual_informations) / len(mutual_informations)
-
+START_YEAR = 2000
+END_YEAR = 2018
+SEGMENT_LENGTH = 3  # In months
+N_SEGMENTS = (END_YEAR-START_YEAR + 1)*(12/SEGMENT_LENGTH)
 
 
 def extract_time_series():
@@ -87,12 +29,20 @@ def extract_time_series():
 
 
 if __name__ == '__main__':
+    first_dataset = pd.read_csv('data/daily_AAPL.csv')
+
+    dates_total = np.array_split(first_dataset.iloc[:, 0].values, N_SEGMENTS)
+    date_segment = np.flip([date[0] for date in dates_total])
+    x_axis = dates.datestr2num(date_segment)
+    register_matplotlib_converters()
+
     time_series_full = extract_time_series()
-    time_series_segments = np.array_split(time_series_full, 72, axis=1)
+    time_series_segments = np.array_split(time_series_full, N_SEGMENTS, axis=1)
 
-    mutual_information_avgs = []
+    average_mutual_information = []
     for ts in time_series_segments:
-        mutual_information_avgs.append(average_mutual_information(ts))
+        mvg = MultiplexVisibilityGraph(ts, companies)
+        average_mutual_information.append(mvg.average_mutual_information())
 
-    plt.plot(range(len(time_series_segments)), mutual_information_avgs)
+    plt.plot_date(x_axis, average_mutual_information, linestyle='solid', marker='None')
     plt.show()
